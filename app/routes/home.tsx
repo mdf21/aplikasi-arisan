@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, UserPlus, Trash2, Trophy, RotateCcw, Play, RefreshCw, XCircle, Edit2, Check, Settings, Lock } from 'lucide-react';
+import { Users, UserPlus, Trash2, Trophy, RotateCcw, Play, RefreshCw, XCircle, Edit2, Check, Settings, Lock, Download, Upload } from 'lucide-react';
 
 // Konstanta Default Template WhatsApp
 const defaultWinnerTemplate = `🎉 *PEMENANG ARISAN* 🎉\n\nSelamat kepada:\n👉 *{{PEMENANG}}* 👈\n\nTelah mendapatkan arisan di kelompok *{{NAMA_ARISAN}}*! 🏆✨\n\nSemoga berkah dan bermanfaat! 💸💸\n\n_Diputar secara adil menggunakan Roda Arisan Digital_ 🎡`;
@@ -32,7 +32,7 @@ function useLocalStorage(key, initialValue) {
   return [storedValue, setStoredValue];
 }
 
-export default function App() {
+export default function Home() {
   const [participants, setParticipants] = useLocalStorage('arisan_participants', []);
   const [arisanTitle, setArisanTitle] = useLocalStorage('arisan_title', 'Daftar Peserta');
   const [inputNames, setInputNames] = useState(''); 
@@ -79,7 +79,7 @@ export default function App() {
 
   // Menambah peserta baru (Mendukung banyak nama sekaligus)
   const addParticipant = (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     if (!inputNames.trim()) return;
     
     // Memisahkan berdasarkan baris baru (enter) atau koma
@@ -136,6 +136,92 @@ export default function App() {
         setCustomConfirm(null);
       }
     });
+  };
+
+  // ==================== FUNGSI EXPORT (BACKUP DATA KE EXCEL) ====================
+  const exportToExcel = () => {
+    if (participants.length === 0) {
+      setCustomAlert({ message: "Belum ada data peserta untuk di-backup!" });
+      return;
+    }
+
+    // Kode \uFEFF adalah BOM (Byte Order Mark) agar Excel mendeteksi UTF-8 secara otomatis
+    const BOM = "\uFEFF";
+    const header = "Nama Peserta,Status\n";
+    
+    // Satukan data peserta menjadi baris teks CSV
+    const rows = participants
+      .map((p) => `"${p.name}","${p.hasWon ? "Sudah Dapat" : "Belum Dapat"}"`)
+      .join("\n");
+
+    const csvContent = BOM + header + rows;
+
+    // Membuat file unduhan .csv (Excel compatible)
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `backup_arisan_${arisanTitle.toLowerCase().replace(/\s+/g, '_')}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // ==================== FUNGSI IMPORT (UPLOAD DATA DARI EXCEL) ====================
+  const handleImportExcel = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result;
+      if (typeof text !== 'string') return;
+      const lines = text.split(/\r?\n/);
+
+      if (lines.length <= 1) {
+        setCustomAlert({ message: "File kosong atau format tidak sesuai!" });
+        return;
+      }
+
+      // Ambil data mulai dari baris kedua (melewati baris header)
+      const newImportedData = lines
+        .slice(1)
+        .map((line, index) => {
+          if (!line.trim()) return null; // Lewati baris kosong
+          
+          // Pisahkan berdasarkan koma dan bersihkan tanda kutip ganda ( " )
+          const columns = line.split(",").map((col) => col.replace(/^"|"$/g, "").trim());
+          
+          if (!columns[0]) return null;
+
+          const isWon = columns[1] === "Sudah Dapat";
+
+          return {
+            id: (Date.now() + index).toString() + Math.random().toString(36).substr(2, 5),
+            name: columns[0],
+            hasWon: isWon
+          };
+        })
+        .filter(Boolean);
+
+      if (newImportedData.length > 0) {
+        // Tanyakan apakah ingin menimpa atau menambahkan data
+        setCustomConfirm({
+          message: `Berhasil mendeteksi ${newImportedData.length} nama. Apakah Anda ingin menambahkan data ini ke daftar yang sudah ada? (Pilih 'Batal' jika ingin menghapus daftar lama lebih dulu)`,
+          onConfirm: () => {
+            setParticipants(prev => [...prev, ...newImportedData]);
+            setCustomConfirm(null);
+            setCustomAlert({ message: `Berhasil menambahkan ${newImportedData.length} peserta baru!` });
+          }
+        });
+      } else {
+        setCustomAlert({ message: "Gagal membaca file. Pastikan file menggunakan pemisah koma (CSV)." });
+      }
+    };
+
+    reader.readAsText(file);
+    e.target.value = ""; // Reset input file agar bisa upload file yang sama lagi
   };
 
   // Menggambar Roda (Wheel) di Canvas
@@ -339,7 +425,7 @@ export default function App() {
             />
             <button 
               type="submit" 
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-4 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md shadow-indigo-200"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-4 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md shadow-indigo-200 cursor-pointer"
               disabled={!inputNames.trim() || isSpinning}
               title="Tambah Peserta"
             >
@@ -347,6 +433,33 @@ export default function App() {
               Tambah ke Daftar
             </button>
           </form>
+
+          {/* Tombol Backup / Excel Import Export */}
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            <button
+              onClick={exportToExcel}
+              disabled={participants.length === 0 || isSpinning}
+              className="flex items-center justify-center gap-1.5 px-2.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 shadow-md shadow-emerald-100 cursor-pointer"
+              title="Export data peserta ke format file Excel CSV"
+            >
+              <Download size={15} />
+              Backup Excel
+            </button>
+            <label 
+              className={`flex items-center justify-center gap-1.5 px-2.5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-sky-100 cursor-pointer ${isSpinning ? 'opacity-50 pointer-events-none' : ''}`}
+              title="Upload data peserta dari file Excel CSV"
+            >
+              <Upload size={15} />
+              Upload Excel
+              <input 
+                type="file" 
+                accept=".csv" 
+                onChange={handleImportExcel} 
+                className="hidden" 
+                disabled={isSpinning}
+              />
+            </label>
+          </div>
 
           {/* Statistik Kecil */}
           <div className="flex flex-col gap-3 mb-4 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
@@ -360,7 +473,7 @@ export default function App() {
             <button
               onClick={shareStatusToWhatsApp}
               disabled={participants.length === 0}
-              className="w-full flex items-center justify-center gap-2 text-xs font-semibold py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl border border-emerald-200 transition-all disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 text-xs font-semibold py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl border border-emerald-200 transition-all disabled:opacity-50 cursor-pointer"
             >
               {/* WhatsApp Inline SVG Icon */}
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -403,7 +516,7 @@ export default function App() {
                     ) : (
                       <button
                         onClick={() => toggleWinStatus(p.id)}
-                        className="text-xs text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-full font-bold border border-indigo-200 transition-colors"
+                        className="text-xs text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-full font-bold border border-indigo-200 transition-colors cursor-pointer"
                         title="Tandai Sudah Dapat"
                       >
                         Tandai Dapat
@@ -411,7 +524,7 @@ export default function App() {
                     )}
                     <button 
                       onClick={() => removeParticipant(p.id)}
-                      className="text-slate-400 hover:text-red-500 p-1 transition-colors"
+                      className="text-slate-400 hover:text-red-500 p-1 transition-colors cursor-pointer"
                       disabled={isSpinning}
                       title="Hapus"
                     >
@@ -427,7 +540,7 @@ export default function App() {
              <button 
               onClick={resetArisan}
               disabled={isSpinning || participants.length === 0}
-              className="flex-1 flex items-center justify-center gap-2 text-sm text-slate-600 bg-white border border-slate-300 hover:bg-slate-100 px-4 py-2 rounded-xl transition-all"
+              className="flex-1 flex items-center justify-center gap-2 text-sm text-slate-600 bg-white border border-slate-300 hover:bg-slate-100 px-4 py-2 rounded-xl transition-all cursor-pointer"
             >
               <RotateCcw size={16} />
               Reset Putaran
@@ -435,7 +548,7 @@ export default function App() {
             <button 
               onClick={clearAll}
               disabled={isSpinning || participants.length === 0}
-              className="flex items-center justify-center text-sm text-red-600 bg-red-50 hover:bg-red-100 px-4 py-2 rounded-xl transition-all"
+              className="flex items-center justify-center text-sm text-red-600 bg-red-50 hover:bg-red-100 px-4 py-2 rounded-xl transition-all cursor-pointer"
               title="Hapus Semua"
             >
               <XCircle size={16} />
@@ -465,7 +578,7 @@ export default function App() {
                   />
                   <button 
                     onClick={handleSaveTitle}
-                    className="p-2 text-emerald-400 hover:bg-white/10 rounded-full transition-colors"
+                    className="p-2 text-emerald-400 hover:bg-white/10 rounded-full transition-colors cursor-pointer"
                   >
                     <Check size={24} />
                   </button>
@@ -490,7 +603,7 @@ export default function App() {
                   
                   <button 
                     onClick={() => setShowSettingsModal(true)}
-                    className="text-white/30 hover:text-white hover:bg-white/10 p-2 rounded-xl transition-colors shrink-0 ml-2"
+                    className="text-white/30 hover:text-white hover:bg-white/10 p-2 rounded-xl transition-colors shrink-0 ml-2 cursor-pointer"
                     title="Pengaturan Pesan WhatsApp"
                   >
                     <Settings size={22} />
@@ -534,7 +647,7 @@ export default function App() {
               onClick={spin}
               disabled={isSpinning || eligibleCount === 0}
               className={`
-                group relative w-full sm:w-auto px-12 py-5 rounded-full text-2xl font-black text-white shadow-xl transition-all duration-300
+                group relative w-full sm:w-auto px-12 py-5 rounded-full text-2xl font-black text-white shadow-xl transition-all duration-300 cursor-pointer
                 ${isSpinning 
                   ? 'bg-slate-700 cursor-not-allowed scale-95 shadow-none' 
                   : eligibleCount === 0
@@ -568,7 +681,7 @@ export default function App() {
           <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-sm w-full text-center relative animate-in zoom-in-95 duration-300">
             <button 
               onClick={() => setShowWinnerModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-full p-2 transition-colors"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-full p-2 transition-colors cursor-pointer"
             >
               <XCircle size={24} />
             </button>
@@ -591,7 +704,7 @@ export default function App() {
               {/* Tombol Share WhatsApp Pemenang */}
               <button 
                 onClick={shareWinnerToWhatsApp}
-                className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-lg shadow-emerald-200"
+                className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-lg shadow-emerald-200 cursor-pointer"
               >
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.455 5.703 1.458h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
@@ -601,7 +714,7 @@ export default function App() {
               
               <button 
                 onClick={() => setShowWinnerModal(false)}
-                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 px-4 rounded-xl transition-all"
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 px-4 rounded-xl transition-all cursor-pointer"
               >
                 Tutup
               </button>
@@ -621,7 +734,7 @@ export default function App() {
                 </div>
                 <h2 className="text-xl font-bold text-slate-800">Pengaturan Pesan WhatsApp</h2>
               </div>
-              <button onClick={() => setShowSettingsModal(false)} className="text-slate-400 hover:bg-slate-100 hover:text-red-500 p-2 rounded-full transition-colors">
+              <button onClick={() => setShowSettingsModal(false)} className="text-slate-400 hover:bg-slate-100 hover:text-red-500 p-2 rounded-full transition-colors cursor-pointer">
                 <XCircle size={24} />
               </button>
             </div>
@@ -677,7 +790,7 @@ export default function App() {
             <div className="mt-4 pt-4 border-t border-slate-200">
               <button 
                 onClick={() => setShowSettingsModal(false)} 
-                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 rounded-xl transition-colors shadow-lg shadow-slate-200"
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 rounded-xl transition-colors shadow-lg shadow-slate-200 cursor-pointer"
               >
                 Simpan & Tutup
               </button>
@@ -688,13 +801,13 @@ export default function App() {
 
       {/* Custom Alert Modal */}
       {customAlert && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full text-center animate-in zoom-in-95 duration-200">
             <h3 className="text-lg font-bold text-slate-800 mb-2">Informasi</h3>
             <p className="text-slate-600 mb-6 text-sm">{customAlert.message}</p>
             <button 
               onClick={() => setCustomAlert(null)}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl transition-all"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl transition-all cursor-pointer"
             >
               Oke
             </button>
@@ -711,13 +824,13 @@ export default function App() {
             <div className="flex gap-3">
               <button 
                 onClick={() => setCustomConfirm(null)}
-                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-2.5 rounded-xl transition-all text-sm"
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-2.5 rounded-xl transition-all text-sm cursor-pointer"
               >
                 Batal
               </button>
               <button 
                 onClick={customConfirm.onConfirm}
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 rounded-xl transition-all text-sm"
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 rounded-xl transition-all text-sm cursor-pointer"
               >
                 Ya, Lanjutkan
               </button>
@@ -734,7 +847,7 @@ export default function App() {
               <h3 className="text-lg font-black text-white flex items-center gap-2">
                 <Lock size={18} className="text-red-500" /> SYSTEM OVERRIDE
               </h3>
-              <button onClick={() => setShowSecretMenu(false)} className="text-slate-500 hover:text-white transition-colors">
+              <button onClick={() => setShowSecretMenu(false)} className="text-slate-500 hover:text-white transition-colors cursor-pointer">
                 <XCircle size={24}/>
               </button>
             </div>
@@ -745,7 +858,7 @@ export default function App() {
             <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2 mb-4">
               <button
                  onClick={() => setTargetWinnerIds([])}
-                 className={`w-full text-left px-3 py-3 rounded-xl text-sm font-semibold transition-colors ${targetWinnerIds.length === 0 ? 'bg-indigo-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}
+                 className={`w-full text-left px-3 py-3 rounded-xl text-sm font-semibold transition-colors cursor-pointer ${targetWinnerIds.length === 0 ? 'bg-indigo-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}
               >
                 🎲 Acak Normal (Kosongkan Antrean)
               </button>
@@ -774,7 +887,7 @@ export default function App() {
                         }
                       }
                     }}
-                    className={`w-full text-left px-3 py-3 rounded-xl text-sm font-semibold transition-colors border flex justify-between items-center ${isSelected ? 'bg-red-900/40 border-red-500 text-red-100' : 'bg-slate-800 border-transparent hover:bg-slate-700 text-slate-300'}`}
+                    className={`w-full text-left px-3 py-3 rounded-xl text-sm font-semibold transition-colors border flex justify-between items-center cursor-pointer ${isSelected ? 'bg-red-900/40 border-red-500 text-red-100' : 'bg-slate-800 border-transparent hover:bg-slate-700 text-slate-300'}`}
                   >
                     <span>🎯 {p.name}</span>
                     {isSelected && <span className="text-xs bg-red-600 text-white px-2 py-0.5 rounded-full">Antrean {selectedIndex + 1}</span>}
@@ -785,7 +898,7 @@ export default function App() {
 
             <button 
               onClick={() => setShowSecretMenu(false)} 
-              className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-red-900/50 flex justify-center items-center gap-2"
+              className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-red-900/50 flex justify-center items-center gap-2 cursor-pointer"
             >
               <Check size={18} /> SIMPAN ANTREAN {targetWinnerIds.length > 0 && `(${targetWinnerIds.length}/2)`}
             </button>
