@@ -85,3 +85,6 @@ This template comes with [Tailwind CSS](https://tailwindcss.com/) already config
 ---
 
 Built with ❤️ using React Router.
+
+---
+Data di jamin aman karna hanya tersimpan di local prangkat
