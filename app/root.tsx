@@ -33,7 +33,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body>
-        {children}
+        <div className="min-h-screen flex flex-col bg-white text-gray-800 dark:bg-gray-950 dark:text-gray-100">
+          <div className="flex-1">{children}</div>
+          <footer className="border-t border-gray-200 bg-gray-50 py-4 text-center text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900/70 dark:text-gray-400">
+            By MDF Media 22
+          </footer>
+        </div>
         <ScrollRestoration />
         <Scripts />
       </body>
